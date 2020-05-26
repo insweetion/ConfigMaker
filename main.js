@@ -3,6 +3,19 @@ const XLSX = require("node-xlsx");
 const ChildProcess = require("child_process");
 const Readline = require("readline");
 
+String.prototype.isInclude = function(string){
+    return this.indexOf(string) !== -1;
+}
+
+String.prototype.duplicate = function(times){
+    return (new Array(times + 1)).join(this);
+}
+
+String.prototype.replaceAll = function(string, replace){
+    let regExp = new RegExp(string, "g");
+    return this.replace(string, replace);
+}
+
 let tool= {
     readInput(tips){
         tips = tips || "> ";
@@ -24,6 +37,43 @@ let tool= {
         }
         FS.mkdirSync(path);
     },
+
+    fliterValue(type, value){
+        if (type === "int"){
+            return value || 0;
+        }
+        else if (type === "float"){
+            return value || 0.00;
+        }
+        else if (type === "string"){
+            return `"${value}"` || `""`;
+        }
+        else if (type === "array"){
+            return value || "[]";
+        }
+        else {
+            console.error(`Got unknowen type: ${type}`);
+        }
+
+        return "";
+    },
+
+    wirteFile(path, data){
+        if (FS.existsSync(path)){
+            FS.unlinkSync(path);
+        }
+        FS.writeFileSync(path, data);
+    },
+
+    printCutlineStart(title){
+        console.log(`---------------------------------------------`);
+        console.log(`${title} Start ------------------------------`);
+    },
+
+    printCurlineDone(title){
+        console.log(`${title} Done  ---------------------------------`);
+        console.log(`---------------------------------------------`);
+    },
 };
 
 let settings = {
@@ -34,17 +84,18 @@ let settings = {
     isJS:  false,
     isTS:  false,
     isJSON:  false,
+    xlsxList: [],
 }
 
 let maker = {
     start(){
-        this.preprocess();
+        this._preprocess();
     },
 
-    preprocess(){
+    _preprocess(){
         tool.readInput("Input a work space which include xlsx files: ")
         .then(input => {
-            
+
             settings.workSpace = input;
             console.log(settings.workSpace);
             settings.jsonPath = `${settings.workSpace}/json`;
@@ -68,160 +119,218 @@ let maker = {
                         if (settings.isTS) tool.makeEmptyDir(settings.tsPath);
                         if (settings.isJS) tool.makeEmptyDir(settings.jsPath);
 
+                        this._make();
+
                     });
                 });
             });
         });
     },
 
+    _make(){
+        let files = FS.readdirSync(settings.workSpace);
+        for (let i = 0; i < files.length; ++i){
+            if (files[i].indexOf(".xlsx") !== -1){
+                settings.xlsxList.push(`${settings.workSpace}/${files[i]}`);
+            }
+        }
+
+        for (let i = 0; i < settings.xlsxList.length; ++i){
+            if (settings.isJSON) this._makeJSON(settings.xlsxList[i]);
+            if (settings.isTS) this._makeTS(settings.xlsxList[i]);
+            if (settings.isJS) this._makeJS(settings.xlsxList[i]);
+        }
+    },
+    
+    _makeXLSXData(excelData){
+        let mainName = excelData[1].name;
+        let xlsxData = {};
+        for (let i = 1; i < excelData.length; ++i){
+            xlsxData[excelData[i].name] = excelData[i];
+        }
+        return xlsxData;
+    },
+
+    _makeJSON(xlsxPath){
+        tool.printCutlineStart(`Make JSON ${xlsxPath}`);
+        let excelData = XLSX.parse(xlsxPath);
+        let mainName = excelData[1].name;
+        let xlsxData = this._makeXLSXData(excelData);
+        let data = this._makeXLSXChunk(xlsxData, mainName);
+        tool.wirteFile(`${settings.jsonPath}/${mainName}.json`, data);
+        tool.printCurlineDone(`Make JSON`);
+    },
+
+    _makeTS(xlsxPath){},
+
+    _makeJS(xlsxPath){},
+
+    _makeXLSXChunk(xlsxData, name){
+        let sourceData = xlsxData[name].data;
+        let types = sourceData[1];
+        let data = "";
+        for (let i = 3; i < sourceData.length; ++i){
+            data += `\t"${this._makeCellChunk(xlsxData, name, types[0], sourceData[i][0], 0)}":${this._makeRowChunk(xlsxData, name, i, 1)}`
+            if (i < sourceData.length - 1){
+                data += ",\n";
+            }
+            else{
+                data += "\n";
+            }
+        }
+        return `{\n${data}\n}`;
+    },
+
+    _makeSheetChunk(xlsxData, name, indentedCount){
+        let sourceData = xlsxData[name].data;
+        let indentedString = "\t".duplicate(indentedCount);
+        let data = "";
+        for (let i = 3; i < sourceData.length; ++i){
+            data += `${indentedString}\t${this._makeRowChunk(xlsxData, name, i, indentedCount + 1)}`
+            if (i < sourceData.length - 1){
+                data += ",\n";
+            }
+            else{
+                data += "\n";
+            }
+        }
+        return `${indentedString}[\n${data}\n${indentedString}]`;
+    },
+
+    _makeRowChunk(xlsxData, name, row, indentedCount){
+        let sheetData = xlsxData[name].data;
+        let types = sheetData[1];
+        let keys = sheetData[2];
+        let rowData = sheetData[row];
+        let indentedString = "\t".duplicate(indentedCount);
+
+        let data = "";
+        for (let i = 0; i < types.length; ++i){
+            data += `${indentedString}\t"${keys[i]}": ${this._makeCellChunk(xlsxData, name, types[i], rowData[i], indentedCount + 1)}`;
+            if (i < types.length - 1){
+                data += ",\n";
+            }
+            else{
+                data += "\n";
+            }
+        }
+
+        return `\n${indentedString}{\n${data}${indentedString}}`;
+    },
+
+    _makeCellChunk(xlsxData, name, type, value, indentedCount){
+        let indentedString = "\t".duplicate(indentedCount);
+        if (type === "array"){
+            if (this._isSimpleArray(value)){
+                return tool.fliterValue(type, value);
+            }
+
+            if (value.isInclude("[") || value.isInclude(",")){
+                value = value.substr(0, 1) === "[" ? value.substr(1, value.length - 1) : value;
+                value = value.substr(value.length - 1, 1) === "]" ? value.substr(0, value.length - 1) : value;
+                let listData = value.split(",");
+                let data = "";
+                for (let i = 0; i < listData.length; ++i){
+                    let sheetName = this._extractSheetName(listData[i]);
+                    if (!xlsxData[sheetName]){
+                        console.error(`Array data has no sheet1: ${sheetName}`);
+                        return "[]";
+                    }
+                    let row = this._extractSheetRow(listData[i]);
+                    data += `${indentedString}\t${this._makeRowChunk(xlsxData, sheetName, row, indentedCount + 1)}`;
+                    if (i < listData.length - 1){
+                        data += ",";
+                    }
+                }
+                return `\n${indentedString}[${data}\n${indentedString}]`;
+            }
+            else {
+                if (!xlsxData[value]){
+                    console.error(`Array data has no sheet2: ${value}`);
+                    return "[]";
+                }
+                return `${indentedString}${this._makeSheetChunk(xlsxData, value, indentedCount + 1)}`;
+            }
+        }
+        else if (type === "object"){
+            if (value === null || value === undefined || value === "" || value === {}){
+                return "{}";
+            }
+            if (value.isInclude("(")){
+                let sheetName = this._extractSheetName(value);
+                if (!xlsxData[sheetName]){
+                    console.error(`Obejct data has no sheet: ${sheetName}`);
+                    return "{}";
+                }
+                let row = this._extractSheetRow(value);
+                return `${indentedString}${this._makeRowChunk(xlsxData, sheetName, row, indentedCount + 1)}`;
+            }
+            else {
+                if (!xlsxData[value]){
+                    console.error(`Obejct data has no sheet: ${value}`);
+                    return "{}";
+                }
+                let data = "";
+                for (let i = 3; i < xlsxData[value].data.length; ++i){
+                    let rowData = this._makeRowChunk(xlsxData, value, i, indentedCount + 1);
+                    data += `${indentedString}\t"${this._makeCellChunk(xlsxData, value, xlsxData[value].data[1][0], xlsxData[value].data[i][0], indentedCount + 1)}":${rowData}`;
+                    if (i < xlsxData[value].data.length - 1){
+                        data += ",\n";
+                    }
+                    else {
+                        data += "\n";
+                    }
+                }
+
+                return `${indentedString}{\n${data}\n${indentedString}}`;
+            }
+        }
+        else {
+            return tool.fliterValue(type, value);
+        }
+    },
+
+    _isSimpleArray(cellData){
+        if (cellData === null || cellData === undefined || cellData === "" || cellData === "[]"){
+            return true;
+        }
+        let list = cellData.split(",");
+        let firstItem = list[0].substr(0, 1) === "[" ? list[0].substr(1, list[0].length - 1) : list[0];
+        return (firstItem.indexOf("(") === -1);
+    },
+
+    _extractSheetName(data){
+        return data.substr(0, data.indexOf("(")).replaceAll(" ", "");
+    },
+
+    _extractSheetRow(data){
+        let leftIndex = data.indexOf("(");
+        let rightIndex = data.indexOf(")");
+        if (leftIndex === -1 || rightIndex === -1){
+            console.error(`Row Error ${data}`);
+            return -1;
+        }
+        return parseInt(data.substr(leftIndex + 1, rightIndex - leftIndex - 1)) - 1;
+    },
+
+    test(){
+        settings.workSpace = "/Users/jiajiaju/Documents/works/git-space/ConfigMaker";
+        settings.jsonPath = `${settings.workSpace}/json`;
+        settings.tsPath = `${settings.workSpace}/ts`;
+        settings.jsPath = `${settings.workSpace}/js`;
+        settings.isJSON = true;
+        settings.isTS = true;
+        settings.isJS = true;
+
+        if (settings.isJSON) tool.makeEmptyDir(settings.jsonPath);
+        if (settings.isTS) tool.makeEmptyDir(settings.tsPath);
+        if (settings.isJS) tool.makeEmptyDir(settings.jsPath);
+
+        this._make();
+
+    }
+
 };
 
-maker.start();
-
-// let tool = {
-
-//     fliterValue(type, value){
-//         if (type === "int"){
-//             return value || 0;
-//         }
-//         else if (type === "float"){
-//             return value || 0.00;
-//         }
-//         else if (type === "string"){
-//             return value || "";
-//         }
-//         else if (type === "array"){
-//             if (value){
-//                 if (value.indexOf === undefined || value.indexOf(",") === -1){
-//                     return [value];
-//                 }
-//                 else {
-//                     return value.split(",");
-//                 }
-//             }
-//             else {
-//                 return [];
-//             }
-//         }
-//         else {
-//         }
-
-//         return "";
-//     },
-
-//     clear(){
-//         if (FS.existsSync("json")){
-//             ChildProcess.execSync("rm -f -d -R json");
-//         }
-
-//         if (FS.existsSync("ts")){
-//             ChildProcess.execSync("rm -f -d -R ts");
-//         }
-
-//         ChildProcess.execSync("mkdir json");
-//         ChildProcess.execSync("mkdir ts");
-//     },
-
-//     getJSONPath(excelDataItem){
-//         return `json/${excelDataItem.name.toLowerCase()}.json`;
-//     },
-
-//     getTSPath(excelDataItem){
-//         return `ts/${excelDataItem.name.toLowerCase()}.ts`;
-//     },
-
-//     getJSONData(excelDataItem){
-//         let sourceData = excelDataItem.data;
-//         let json = {};
-//         let comments = sourceData[0];
-//         let types = sourceData[1];
-//         let keys = sourceData[2];
-
-//         for (let index = 3; index < sourceData.length; ++index){
-//             let dataItem = sourceData[index];
-//             json[`${dataItem[0]}`] = {};
-//             for (let i in keys){
-//                 json[`${dataItem[0]}`][keys[i]] = this.fliterValue(types[i], dataItem[i]);
-//             }
-//         }
-
-//         let commentData = "";
-
-//         for (let i in keys){
-//             commentData += `${keys[i]}: ${this.fliterValue("string", comments[i])}\n`;
-//         }
-
-//         return `/*\n${commentData}*/\n${JSON.stringify(json, null, 4)}`;
-//     },
-
-//     getTSData(excelDataItem){
-//         let sourceData = excelDataItem.data;
-//         let json = {};
-//         let comments = sourceData[0];
-//         let types = sourceData[1];
-//         let keys = sourceData[2];
-
-//         for (let index = 3; index < sourceData.length; ++index){
-//             let dataItem = sourceData[index];
-//             json[`${dataItem[0]}`] = {};
-//             for (let i in keys){
-//                 json[`${dataItem[0]}`][keys[i]] = this.fliterValue(types[i], dataItem[i]);
-//             }
-//         }
-
-//         let commentData = "";
-
-//         for (let i in keys){
-//             commentData += `${keys[i]}: ${this.fliterValue("string", comments[i])}\n`;
-//         }
-
-//         return `/*\n${commentData}*/\nexport default\n${JSON.stringify(json, null, 4)}`;
-//     },
-
-//     makeJSON(excelPath){
-//         let workSheetsFromFile = XLSX.parse(excelPath);
-//         for (let index = 1; index < workSheetsFromFile.length; ++index){
-//             let jsonData = this.getJSONData(workSheetsFromFile[index]);
-//             let jsonPath = this.getJSONPath(workSheetsFromFile[index]);
-//             if (FS.existsSync(jsonPath)){
-//                 FS.unlinkSync(jsonPath);
-//             }
-//             FS.writeFileSync(jsonPath, jsonData);
-//         }
-//     },
-
-//     makeTS(excelPath){
-//         let workSheetsFromFile = XLSX.parse(excelPath);
-//         for (let index = 1; index < workSheetsFromFile.length; ++index){
-//             let tsData = this.getTSData(workSheetsFromFile[index]);
-//             let tsPath = this.getTSPath(workSheetsFromFile[index]);
-//             if (FS.existsSync(tsPath)){
-//                 FS.unlinkSync(tsPath);
-//             }
-//             FS.writeFileSync(tsPath, tsData);
-//         }
-//     },
-// }
-
-// tool.clear();
-
-// let files = FS.readdirSync("excel");
-
-// for (let i = 0; i < files.length; ++i){
-//     let filename = files[i];
-//     if (filename.indexOf(".DS_Store") !== -1){
-//         continue;
-//     }
-
-//     console.log("********************************");
-//     console.log(`start export ${filename}`);
-//     tool.makeJSON(`excel/${filename}`);
-//     tool.makeTS(`excel/${filename}`);
-//     console.log(`finish export ${filename}`);
-//     console.log("********************************");
-// }
-
-
-
-
-
+// maker.start();
+maker.test();
