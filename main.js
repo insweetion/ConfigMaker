@@ -161,9 +161,25 @@ let maker = {
         tool.printCurlineDone(`Make JSON`);
     },
 
-    _makeTS(xlsxPath){},
+    _makeTS(xlsxPath){
+        tool.printCutlineStart(`Make TS ${xlsxPath}`);
+        let excelData = XLSX.parse(xlsxPath);
+        let mainName = excelData[1].name;
+        let xlsxData = this._makeXLSXData(excelData);
+        let data = this._makeXLSXChunk(xlsxData, mainName);
+        tool.wirteFile(`${settings.tsPath}/${mainName}.ts`, `export default\n${data}`);
+        tool.printCurlineDone(`Make TS`);
+    },
 
-    _makeJS(xlsxPath){},
+    _makeJS(xlsxPath){
+        tool.printCutlineStart(`Make JS ${xlsxPath}`);
+        let excelData = XLSX.parse(xlsxPath);
+        let mainName = excelData[1].name;
+        let xlsxData = this._makeXLSXData(excelData);
+        let data = this._makeXLSXChunk(xlsxData, mainName);
+        tool.wirteFile(`${settings.jsPath}/${mainName}.js`, `module.exports=${data}`);
+        tool.printCurlineDone(`Make JS`);
+    },
 
     _makeXLSXChunk(xlsxData, name){
         let sourceData = xlsxData[name].data;
@@ -312,25 +328,6 @@ let maker = {
         }
         return parseInt(data.substr(leftIndex + 1, rightIndex - leftIndex - 1)) - 1;
     },
-
-    test(){
-        settings.workSpace = "/Users/jiajiaju/Documents/works/git-space/ConfigMaker";
-        settings.jsonPath = `${settings.workSpace}/json`;
-        settings.tsPath = `${settings.workSpace}/ts`;
-        settings.jsPath = `${settings.workSpace}/js`;
-        settings.isJSON = true;
-        settings.isTS = true;
-        settings.isJS = true;
-
-        if (settings.isJSON) tool.makeEmptyDir(settings.jsonPath);
-        if (settings.isTS) tool.makeEmptyDir(settings.tsPath);
-        if (settings.isJS) tool.makeEmptyDir(settings.jsPath);
-
-        this._make();
-
-    }
-
 };
 
-// maker.start();
-maker.test();
+maker.start();
