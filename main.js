@@ -70,7 +70,7 @@ let tool= {
         console.log(`${title} Start ------------------------------`);
     },
 
-    printCurlineDone(title){
+    printCutlineDone(title){
         console.log(`${title} Done  ---------------------------------`);
         console.log(`---------------------------------------------`);
     },
@@ -158,7 +158,7 @@ let maker = {
         let xlsxData = this._makeXLSXData(excelData);
         let data = this._makeXLSXChunk(xlsxData, mainName);
         tool.wirteFile(`${settings.jsonPath}/${mainName}.json`, data);
-        tool.printCurlineDone(`Make JSON`);
+        tool.printCutlineDone(`Make JSON`);
     },
 
     _makeTS(xlsxPath){
@@ -168,7 +168,7 @@ let maker = {
         let xlsxData = this._makeXLSXData(excelData);
         let data = this._makeXLSXChunk(xlsxData, mainName);
         tool.wirteFile(`${settings.tsPath}/${mainName}.ts`, `export default\n${data}`);
-        tool.printCurlineDone(`Make TS`);
+        tool.printCutlineDone(`Make TS`);
     },
 
     _makeJS(xlsxPath){
@@ -178,7 +178,7 @@ let maker = {
         let xlsxData = this._makeXLSXData(excelData);
         let data = this._makeXLSXChunk(xlsxData, mainName);
         tool.wirteFile(`${settings.jsPath}/${mainName}.js`, `module.exports=${data}`);
-        tool.printCurlineDone(`Make JS`);
+        tool.printCutlineDone(`Make JS`);
     },
 
     _makeXLSXChunk(xlsxData, name){
